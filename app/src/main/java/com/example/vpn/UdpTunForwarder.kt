@@ -54,14 +54,12 @@ class UdpTunForwarder(
         val ihl = (packet[0].toInt() and 0x0F) * 4
         if (length < ihl) return 0
 
-        val protocol = packet[9].toInt() and 0xFF
-        val srcIp = packet.copyOfRange(12, 16)
+        val totalLength = ((packet[2].toInt() and 0xFF) shl 8) or (packet[3].toInt() and 0xFF)\n        if (totalLength < ihl || totalLength > length) return 0\n        // Fragmented IPv4 packets are not reassembled by this experimental forwarder.\n        val fragmentField = ((packet[6].toInt() and 0xFF) shl 8) or (packet[7].toInt() and 0xFF)\n        if ((fragmentField and 0x3FFF) != 0) return 0\n\n        val protocol = packet[9].toInt() and 0xFF\n        val srcIp = packet.copyOfRange(12, 16)
         val dstIp = packet.copyOfRange(16, 20)
 
         return when (protocol) {
             1 -> handleIcmp(packet, length, ihl, srcIp, dstIp)
-            17 -> handleUdp(packet, length, ihl, srcIp, dstIp)
-            else -> 0
+            17 -> handleUdp(packet, totalLength, ihl, srcIp, dstIp)\n            // TCP, IPv6 and other protocols are intentionally rejected. This is not a full VPN.\n            else -> 0
         }
     }
 
