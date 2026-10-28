@@ -242,39 +242,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 benchmarkStatusText = "A medir latência direta para ${game.name}..."
             )
 
-            val serverToTest = if (_uiState.value.isAutoRouteEnabled) null else _uiState.value.selectedServer
-            val (comparison, bestServer) = RouteOptimizerEngine.benchmarkGameRoute(
-                game = game,
-                selectedServer = serverToTest,
-                candidateServers = _servers.value
-            )
+            try {
+                val serverToTest = if (_uiState.value.isAutoRouteEnabled) null else _uiState.value.selectedServer
+                val (comparison, bestServer) = RouteOptimizerEngine.benchmarkGameRoute(
+                    game = game,
+                    selectedServer = serverToTest,
+                    candidateServers = _servers.value
+                )
 
-            // Atualiza servidor se estivesse em modo automático
-            if (_uiState.value.isAutoRouteEnabled) {
-                selectServer(bestServer)
+                if (_uiState.value.isAutoRouteEnabled) selectServer(bestServer)
+
+                _uiState.value = _uiState.value.copy(
+                    routeComparison = comparison,
+                    currentMetrics = comparison.directMetrics,
+                    isBenchmarking = false,
+                    benchmarkStatusText = comparison.recommendationMessage,
+                    errorMessage = null
+                )
+
+                val historyItem = TestHistoryItem(
+                    id = UUID.randomUUID().toString(),
+                    gameName = game.name,
+                    serverName = bestServer.name,
+                    directPingMs = comparison.directMetrics.pingMs,
+                    boostedPingMs = comparison.optimizedMetrics.pingMs,
+                    directJitterMs = comparison.directMetrics.jitterMs,
+                    boostedJitterMs = comparison.optimizedMetrics.jitterMs,
+                    packetLossPercent = comparison.optimizedMetrics.packetLossPercent,
+                    improved = comparison.isOptimizedBetter
+                )
+                prefs.addTestHistoryItem(historyItem)
+                _testHistory.value = prefs.getTestHistory()
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isBenchmarking = false,
+                    benchmarkStatusText = "",
+                    errorMessage = e.message ?: "Não foi possível testar a rota."
+                )
             }
-
-            _uiState.value = _uiState.value.copy(
-                routeComparison = comparison,
-                currentMetrics = if (comparison.isOptimizedBetter) comparison.optimizedMetrics else comparison.directMetrics,
-                isBenchmarking = false,
-                benchmarkStatusText = ""
-            )
-
-            // Grava no histórico
-            val historyItem = TestHistoryItem(
-                id = UUID.randomUUID().toString(),
-                gameName = game.name,
-                serverName = bestServer.name,
-                directPingMs = comparison.directMetrics.pingMs,
-                boostedPingMs = comparison.optimizedMetrics.pingMs,
-                directJitterMs = comparison.directMetrics.jitterMs,
-                boostedJitterMs = comparison.optimizedMetrics.jitterMs,
-                packetLossPercent = comparison.optimizedMetrics.packetLossPercent,
-                improved = comparison.isOptimizedBetter
-            )
-            prefs.addTestHistoryItem(historyItem)
-            _testHistory.value = prefs.getTestHistory()
         }
     }
 
