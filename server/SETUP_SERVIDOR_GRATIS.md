@@ -1,82 +1,26 @@
-# Guia de Infraestrutura Gratuita e Configuração de Servidores RouteBoost
+# Estado real da infraestrutura RouteBoost
 
-Este guia foi concebido especialmente para quem está a trabalhar **diretamente a partir de um telemóvel Android**, sem necessidade de computador.
+Este documento descreve o estado atual do protótipo; não promete uma VPN pronta.
 
----
+## Limitações atuais
 
-## 1. Por que é necessário um Servidor Intermediário? (Verdade Técnica)
+- O encaminhador Android só trata alguns pacotes IPv4 UDP e responde a pedidos ICMP localmente.
+- TCP, IPv6 e fragmentos IPv4 não são encaminhados.
+- O relay UDP personalizado não é WireGuard e não fornece, por si só, um túnel VPN completo.
+- A porta UDP experimental do relay é 7000; a verificação HTTP de saúde usa 8080.
+- A aplicação não tem nós públicos reais pré-configurados. É necessário um servidor próprio acessível, e a implementação atual ainda não suporta todos os protocolos necessários para jogos.
+- Medir o ping até ao nó não prova que a rota completa até ao servidor do jogo seja mais rápida.
 
-Ao contrário de promessas milagrosas falsas:
-- **Uma app local no telemóvel não pode encurtar fisicamente o cabo de fibra ótica** entre a sua casa e o servidor do jogo.
-- O que ferramentas reais como o **ExitLag** fazem chama-se **Otimização de Rota e Peering BGP**:
-  1. A sua operadora móvel (4G/5G) muitas vezes dá voltas longas e passa por nós congestionados antes de chegar ao jogo.
-  2. Ao ligar a um **servidor RouteBoost intermediário** (estrategicamente posicionado em São Paulo, Miami ou Frankfurt num Data Center Tier-1 com ligação direta ao IX.br/Equinix), os seus pacotes pegam uma "autoestrada rápida".
-  3. O RouteBoost mede a latência direta vs a rota intermediária. **Se a sua rota direta já for melhor, o RouteBoost não força o desvio**, poupando latência e bateria!
+## Segurança
 
----
+Não execute scripts de instalação remotos não verificados com `curl | bash`. Não exponha um relay UDP sem autenticação, limites de tráfego e regras de firewall adequadas. Não introduza chaves privadas ou credenciais no repositório.
 
-## 2. Como criar um Servidor 100% Gratuito (Pelo Telemóvel)
+## Como validar uma futura versão
 
-### Opção A: Oracle Cloud Always Free (A Melhor Opção - Grátis Para Sempre)
-A Oracle oferece gratuitamente no seu plano vitalício:
-- **4 núcleos Ampere ARM, 24 GB de RAM**
-- **10 Terabytes de tráfego por mês** (mais que suficiente para centenas de horas de jogo)
-- Data centers em: **São Paulo (Brasil)**, **Santiago (Chile)**, **Frankfurt (Alemanha)**, **Ashburn (EUA)**.
+1. Compilar o APK e confirmar que o artefacto é gerado.
+2. Instalar num dispositivo de teste e verificar início, paragem e recuperação da VPN.
+3. Usar um servidor de teste controlado, com autenticação e firewall.
+4. Testar TCP, UDP, DNS, IPv4, IPv6, fragmentação, perda de pacotes e reconexão.
+5. Só declarar compatibilidade com um jogo depois de testar esse jogo e comparar latência ponta a ponta com e sem túnel.
 
-#### Passo a Passo no Telemóvel:
-1. Abra o navegador do telemóvel (Chrome/Brave) e aceda a `https://www.oracle.com/cloud/free/`.
-2. Registe a sua conta gratuita selecionando a região mais próxima dos seus jogos (ex: *Brazil East - São Paulo*).
-3. No painel da Oracle:
-   - Toque no menu hambúrguer > **Compute** > **Instances** > **Create Instance**.
-   - Escolha o sistema operacional **Ubuntu 22.04 LTS**.
-   - Toque em **Save Private Key** (guardará a chave SSH nos downloads do telemóvel).
-4. No menu da rede da sua instância (**Virtual Cloud Network** > **Security Lists** > **Default Security List**):
-   - Adicione uma **Ingress Rule**:
-     - *Source CIDR*: `0.0.0.0/0`
-     - *IP Protocol*: `UDP`
-     - *Destination Port*: `51820` (Porta do WireGuard)
-     - *Destination Port*: `8080` (Porta de Status)
-
----
-
-### Opção B: Instalação com 1 Comando no Servidor
-
-Pelo telemóvel, pode aceder ao terminal do seu servidor através da app gratuita **Termux** (disponível no F-Droid ou GitHub) ou diretamente pelo console web do navegador da Oracle Cloud:
-
-Execute este único comando:
-
-```bash
-curl -sSL https://raw.githubusercontent.com/routeboost/server/main/install.sh | bash
-```
-
-O script instala automaticamente:
-- O módulo de Kernel do WireGuard
-- O encaminhamento de pacotes `sysctl net.ipv4.ip_forward=1`
-- As regras de firewall `iptables` de baixa latência
-- Gera as chaves de encriptação
-
----
-
-## 3. Ligar o RouteBoost no Telemóvel ao seu Servidor
-
-1. Abra o **RouteBoost** no seu telemóvel Android.
-2. Toque na aba **Servidores**.
-3. Toque no ícone **'+'** no canto superior direito.
-4. Preencha:
-   - **Nome do Nó**: Ex: *Meu VPS São Paulo*
-   - **Cidade**: *São Paulo*
-   - **País**: *Brasil*
-   - **IP ou Domínio**: O IP público da sua VPS (ex: `129.148.x.x`)
-   - **Porta**: `51820`
-5. Toque em **Salvar Servidor**.
-6. Pronto! O nó aparecerá com a bandeira ⚡ em *Personalizados*, com teste de ping real e pronto para otimizar os seus jogos!
-
----
-
-## 4. Como Gerar o APK pelo Telemóvel
-
-No Google AI Studio:
-1. Toque no menu de configurações do projeto no canto superior direito.
-2. Selecione **Export as APK** ou **Download ZIP**.
-3. Se descarregar o APK diretamente, toque em **Instalar** no telemóvel (ative a permissão de "Instalar apps desconhecidas" no navegador).
-4. Ao abrir a app e tocar em **OTIMIZAR ROTA**, o Android pedirá a confirmação oficial da VPN: toque em **Permitir**.
+**Estado: experimental. Não utilizar como VPN geral nem afirmar que melhora o ping de jogos até os testes acima passarem.**
