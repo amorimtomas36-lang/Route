@@ -1,113 +1,106 @@
 #!/usr/bin/env python3
-"""
-RouteBoost UDP Gaming Relay & Route Metric Node.
-Recebe datagramas de jogos online do telemóvel Android,
-encaminha para o servidor de destino do jogo com conexões otimizadas
-e fornece health-check HTTP para medição real de latência.
-"""
+"""RouteBoost UDP relay.
 
+This relay is an experimental UDP forwarder, not a WireGuard server. Expose UDP
+port 7000 only on a trusted test VPS and configure the Android client to use that
+exact host/port. Do not advertise it as a production gaming VPN.
+"""
 import asyncio
-import socket
 import json
+import socket
 import struct
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HTTP_PORT = 8080
 UDP_LISTEN_PORT = 7000
+MAX_DATAGRAM = 32767
+RELAY_TIMEOUT_SECONDS = 2.0
+
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path in ['/health', '/status', '/']:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            response = {
-                "service": "RouteBoost Gaming Node",
-                "status": "online",
-                "version": "1.0",
-                "node_region": "Sao Paulo / Brazil (Equinix Hub)",
-                "protocols": ["wireguard", "udp_relay"],
-                "active_relay_port": UDP_LISTEN_PORT
-            }
-            self.wfile.write(json.dumps(response).encode('utf-8'))
-        else:
-            self.send_response(404)
-            self.end_headers()
+        if self.path not in ("/health", "/status", "/"):
+            self.send_error(404)
+            return
+        body = json.dumps({
+            "service": "RouteBoost UDP relay",
+            "status": "online",
+            "version": "1.1",
+            "protocol": "experimental-udp-relay",
+            "udp_port": UDP_LISTEN_PORT,
+            "wireguard": False,
+        }).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
-    def log_message(self, format, *args):
+    def log_message(self, fmt, *args):
         pass
 
+
 def run_http_server():
-    server = HTTPServer(('0.0.0.0', HTTP_PORT), HealthHandler)
-    print(f"[RouteBoost Node] Servidor HTTP de Status ativo na porta {HTTP_PORT}")
-    server.serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), HealthHandler).serve_forever()
+
 
 class UdpRelayProtocol(asyncio.DatagramProtocol):
-    def __init__(self):
-        self.transport = None
-        # Mapeamento de clientes e conexões remotas: (client_addr, target_ip, target_port) -> socket
-        self.client_routes = {}
-
     def connection_made(self, transport):
         self.transport = transport
-        print(f"[RouteBoost Node] Relay UDP iniciado na porta {UDP_LISTEN_PORT}")
+        print(f"[RouteBoost] UDP relay listening on :{UDP_LISTEN_PORT}")
 
     def datagram_received(self, data, addr):
-        # 1. Sondagem de baixa latência para teste de Ping e Jitter
-        if len(data) >= 4 and data[:4] == b"PING":
+        if data.startswith(b"PING"):
             self.transport.sendto(b"PONG" + data[4:], addr)
             return
-
-        # 2. Protocolo de Encaminhamento de Jogos:
-        # Formato: [0x01 (versão)][0x02 (comando RELAY)][4 bytes IP Alvo][2 bytes Porta Alvo][Payload do Jogo]
-        if len(data) >= 8 and data[0] == 0x01 and data[1] == 0x02:
-            target_ip = socket.inet_ntoa(data[2:6])
-            target_port = struct.unpack('!H', data[6:8])[0]
-            payload = data[8:]
-
-            # Encaminha o datagrama para o servidor oficial do jogo
-            loop = asyncio.get_event_loop()
-            loop.create_task(self.forward_to_game(addr, target_ip, target_port, payload))
+        if len(data) < 8 or data[0:2] != b"\x01\x02":
+            return
+        target_ip = socket.inet_ntoa(data[2:6])
+        target_port = struct.unpack("!H", data[6:8])[0]
+        payload = data[8:]
+        if not payload or target_port == 0:
+            return
+        asyncio.get_running_loop().create_task(
+            self.forward_to_game(addr, target_ip, target_port, payload)
+        )
 
     async def forward_to_game(self, client_addr, target_ip, target_port, payload):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setblocking(False)
         try:
-            # Cria socket UDP de saída para o servidor do jogo
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.setblocking(False)
-            sock.sendto(payload, (target_ip, target_port))
-
-            # Aguarda resposta do servidor do jogo com timeout curto de baixa latência
+            # Connect the UDP socket so sock_recv() receives replies from this target.
+            sock.connect((target_ip, target_port))
             loop = asyncio.get_running_loop()
-            data = await asyncio.wait_for(loop.sock_recv(sock, 32767), timeout=2.0)
-
-            # Empacota a resposta e envia de volta para o telemóvel Android
-            # [0x01][0x03 (RESPONSE)][4 bytes IP Origem][2 bytes Porta Origem][Payload]
-            target_ip_bytes = socket.inet_aton(target_ip)
-            target_port_bytes = struct.pack('!H', target_port)
-            response_packet = b"\x01\x03" + target_ip_bytes + target_port_bytes + data
-
-            self.transport.sendto(response_packet, client_addr)
+            await loop.sock_sendall(sock, payload)
+            data = await asyncio.wait_for(
+                loop.sock_recv(sock, MAX_DATAGRAM), timeout=RELAY_TIMEOUT_SECONDS
+            )
+            response = (
+                b"\x01\x03"
+                + socket.inet_aton(target_ip)
+                + struct.pack("!H", target_port)
+                + data
+            )
+            self.transport.sendto(response, client_addr)
+        except (asyncio.TimeoutError, OSError, ValueError):
+            # A timeout or unreachable game endpoint is not a successful relay.
+            pass
+        finally:
             sock.close()
-        except asyncio.TimeoutError:
-            pass
-        except Exception as e:
-            pass
+
 
 async def main():
-    t = threading.Thread(target=run_http_server, daemon=True)
-    t.start()
-
+    threading.Thread(target=run_http_server, daemon=True).start()
     loop = asyncio.get_running_loop()
-    transport, protocol = await loop.create_datagram_endpoint(
-        lambda: UdpRelayProtocol(),
-        local_addr=('0.0.0.0', UDP_LISTEN_PORT)
+    transport, _protocol = await loop.create_datagram_endpoint(
+        UdpRelayProtocol, local_addr=("0.0.0.0", UDP_LISTEN_PORT)
     )
-
     try:
         await asyncio.Event().wait()
     finally:
         transport.close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     asyncio.run(main())
