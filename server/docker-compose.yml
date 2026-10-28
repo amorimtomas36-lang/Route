@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # Servidor WireGuard VPN Otimizado para Jogos
+  wireguard:
+    image: linuxserver/wireguard:latest
+    container_name: routeboost-wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Sao_Paulo
+      - SERVERURL=auto # Detecta o IP público da VPS automaticamente
+      - SERVERPORT=51820
+      - PEERS=10 # Gera configurações para 10 telemóveis clientes
+      - PEERDNS=1.1.1.1,8.8.8.8
+      - INTERNAL_SUBNET=10.150.0.0/24
+      - ALLOWEDIPS=0.0.0.0/0
+    volumes:
+      - ./wireguard-config:/config
+      - /lib/modules:/lib/modules
+    ports:
+      - "51820:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
+    restart: unless-stopped
+
+  # Servidor de Relay UDP de Baixa Latência (Proxy de Datagramas para Jogos)
+  udp-relay:
+    build:
+      context: .
+      dockerfile: Dockerfile.relay
+    container_name: routeboost-udp-relay
+    ports:
+      - "7000-7010:7000-7010/udp"
+      - "8080:8080/tcp" # Endpoint REST de health check e métricas de latência
+    restart: unless-stopped

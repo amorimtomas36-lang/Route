@@ -1,0 +1,6 @@
+{
+  "name": "RouteBoost",
+  "description": "Otimizador de rotas e latência para jogos online com medição real de ping, jitter, perda de pacotes e tunelamento VpnService.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
