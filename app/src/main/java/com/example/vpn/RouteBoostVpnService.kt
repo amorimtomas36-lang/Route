@@ -70,8 +70,8 @@ class RouteBoostVpnService : VpnService() {
                 val gamePackage = intent.getStringExtra(EXTRA_GAME_PACKAGE) ?: ""
                 val gameName = intent.getStringExtra(EXTRA_GAME_NAME) ?: "Jogo Selecionado"
                 val serverName = intent.getStringExtra(EXTRA_SERVER_NAME) ?: "Servidor Ótimo"
-                val serverHost = intent.getStringExtra(EXTRA_SERVER_HOST) ?: "1.1.1.1"
-                val serverPort = intent.getIntExtra(EXTRA_SERVER_PORT, 51820)
+                val serverHost = intent.getStringExtra(EXTRA_SERVER_HOST).orEmpty()
+                val serverPort = intent.getIntExtra(EXTRA_SERVER_PORT, 7000)
                 val splitTunnel = intent.getBooleanExtra(EXTRA_SPLIT_TUNNEL, true)
                 val mtu = intent.getIntExtra(EXTRA_MTU, 1420)
                 val dns = intent.getStringExtra(EXTRA_DNS) ?: "1.1.1.1"
@@ -96,9 +96,7 @@ class RouteBoostVpnService : VpnService() {
         mtu: Int,
         dns: String
     ) {
-        VpnStateManager.updateStatus(VpnStatus.CONNECTING)
-
-        activeRelayHost = serverHost
+        if (serverHost.isBlank() || serverPort !in 1..65535) {\n            VpnStateManager.updateStatus(\n                VpnStatus.ERROR,\n                "Configura um servidor RouteBoost real antes de ligar. O relay UDP usa a porta 7000 por padrão."\n            )\n            stopSelf()\n            return\n        }\n\n        VpnStateManager.updateStatus(VpnStatus.CONNECTING)\n\n        activeRelayHost = serverHost
         activeRelayPort = serverPort
         val notification = buildForegroundNotification(gameName, serverName)
         startForeground(NOTIFICATION_ID, notification)
