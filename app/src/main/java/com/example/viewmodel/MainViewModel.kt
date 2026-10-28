@@ -305,8 +305,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Inicia a VPN do RouteBoost após consentimento do utilizador.
      */
     fun startOptimization(context: Context) {
-        val game = _uiState.value.selectedGame ?: return
-        val server = _uiState.value.selectedServer ?: return
+        val state = _uiState.value
+        val game = state.selectedGame
+        if (game == null) {
+            _uiState.value = state.copy(errorMessage = "Escolhe um jogo primeiro.")
+            return
+        }
+
+        val server = state.selectedServer
+        if (server == null || server.host.isBlank() || server.port !in 1..65535) {
+            _uiState.value = state.copy(
+                errorMessage = "Ainda não há um servidor RouteBoost real configurado. O botão não pode otimizar a rota sem um relay."
+            )
+            return
+        }
+
+        // This prototype only forwards IPv4 UDP. Do not activate it as a full-game VPN:
+        // TCP/IPv6 packets would be dropped and the selected game could lose connectivity.
+        _uiState.value = state.copy(
+            errorMessage = "VPN bloqueada por segurança: o encaminhador atual só suporta IPv4/UDP e ainda não suporta o tráfego completo dos jogos. O teste de rede continua disponível."
+        )
+        return
 
         VpnStateManager.setActiveConfig(game, server)
 
